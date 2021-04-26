@@ -1,9 +1,7 @@
 import 'dart:collection';
 
-import 'package:basics/basics.dart';
 import 'package:collection/collection.dart';
 import 'package:meta/meta.dart';
-import 'package:time_machine/time_machine.dart';
 
 import 'by_week_day_entry.dart';
 import 'codecs/string/decoder.dart';
@@ -18,7 +16,7 @@ import 'utils.dart';
 @immutable
 class RecurrenceRule {
   RecurrenceRule({
-    @required this.frequency,
+    required this.frequency,
     this.until,
     this.count,
     this.interval,
@@ -32,20 +30,16 @@ class RecurrenceRule {
     Set<int> byMonths = const {},
     Set<int> bySetPositions = const {},
     this.weekStart,
-  })  : assert(frequency != null),
-        assert(count == null || count >= 1),
+  })  : assert(count == null || count >= 1),
+        assert(until.isValidRruleDateTime),
         assert(until == null || count == null),
         assert(interval == null || interval >= 1),
-        assert(bySeconds != null),
-        assert(bySeconds.all(_debugCheckIsValidSecond)),
+        assert(bySeconds.every(_debugCheckIsValidSecond)),
         bySeconds = SplayTreeSet.of(bySeconds),
-        assert(byMinutes != null),
-        assert(byMinutes.all(_debugCheckIsValidMinute)),
+        assert(byMinutes.every(_debugCheckIsValidMinute)),
         byMinutes = SplayTreeSet.of(byMinutes),
-        assert(byHours != null),
-        assert(byHours.all(_debugCheckIsValidHour)),
+        assert(byHours.every(_debugCheckIsValidHour)),
         byHours = SplayTreeSet.of(byHours),
-        assert(byWeekDays != null),
         assert(
           [Frequency.monthly, Frequency.yearly].contains(frequency) ||
               byWeekDays.noneHasOccurrence,
@@ -58,23 +52,35 @@ class RecurrenceRule {
               byWeekDays.noneHasOccurrence,
           '[…] the BYDAY rule part MUST NOT be specified with a numeric value '
           'with the FREQ rule part set to YEARLY when the BYWEEKNO rule part '
-          'is specified',
+          'is specified.',
         ),
         byWeekDays = SplayTreeSet.of(byWeekDays),
-        assert(byMonthDays != null),
-        assert(byMonthDays.all(_debugCheckIsValidMonthDayEntry)),
+        assert(byMonthDays.every(_debugCheckIsValidMonthDayEntry)),
+        assert(
+          !(frequency == Frequency.weekly && byMonthDays.isNotEmpty),
+          'The BYMONTHDAY rule part MUST NOT be specified when the FREQ rule '
+          'part is set to WEEKLY.',
+        ),
         byMonthDays = SplayTreeSet.of(byMonthDays),
-        assert(byYearDays != null),
-        assert(byYearDays.all(_debugCheckIsValidDayOfYear)),
+        assert(byYearDays.every(_debugCheckIsValidDayOfYear)),
+        assert(
+          !([Frequency.daily, Frequency.weekly, Frequency.monthly]
+                  .contains(frequency) &&
+              byYearDays.isNotEmpty),
+          'The BYYEARDAY rule part MUST NOT be specified when the FREQ rule '
+          'part is set to DAILY, WEEKLY, or MONTHLY.',
+        ),
         byYearDays = SplayTreeSet.of(byYearDays),
-        assert(byWeeks != null),
-        assert(byWeeks.all(debugCheckIsValidWeekNumber)),
+        assert(byWeeks.every(debugCheckIsValidWeekNumber)),
+        assert(
+          !(frequency != Frequency.yearly && byWeeks.isNotEmpty),
+          '[The BYWEEKNO] rule part MUST NOT be used when the FREQ rule part '
+          'is set to anything other than YEARLY.',
+        ),
         byWeeks = SplayTreeSet.of(byWeeks),
-        assert(byMonths != null),
-        assert(byMonths.all(_debugCheckIsValidMonthEntry)),
+        assert(byMonths.every(_debugCheckIsValidMonthEntry)),
         byMonths = SplayTreeSet.of(byMonths),
-        assert(bySetPositions != null),
-        assert(bySetPositions.all(_debugCheckIsValidDayOfYear)),
+        assert(bySetPositions.every(_debugCheckIsValidDayOfYear)),
         assert(
           bySetPositions.isEmpty ||
               [
@@ -85,15 +91,14 @@ class RecurrenceRule {
           '[BYSETPOS] MUST only be used in conjunction with another BYxxx rule '
           'part.',
         ),
-        bySetPositions = SplayTreeSet.of(bySetPositions);
+        bySetPositions = SplayTreeSet.of(bySetPositions),
+        assert(weekStart == null || weekStart == DateTime.monday);
 
   factory RecurrenceRule.fromString(
     String input, {
     RecurrenceRuleFromStringOptions options =
         const RecurrenceRuleFromStringOptions(),
   }) {
-    assert(options != null);
-
     return RecurrenceRuleStringCodec(fromStringOptions: options).decode(input);
   }
 
@@ -103,13 +108,13 @@ class RecurrenceRule {
   /// (Inclusive)
   ///
   /// Corresponds to the `UNTIL` property.
-  final LocalDateTime until;
+  final DateTime? until;
 
   /// Corresponds to the `COUNT` property.
-  final int count;
+  final int? count;
 
   /// Corresponds to the `INTERVAL` property.
-  final int interval;
+  final int? interval;
 
   /// Returns [interval] or `1` if that is not set.
   int get actualInterval => interval ?? 1;
@@ -152,23 +157,17 @@ class RecurrenceRule {
 
   /// Corresponds to the `WKST` property.
   ///
+  /// Only [DateTime.monday] is currently supported!
+  ///
   /// See also:
   /// - [actualWeekStart], for the resolved value if this is not set.
-  final DayOfWeek weekStart;
+  final int? weekStart;
 
-  /// Returns [weekStart] or [DayOfWeek.monday] if that is not set.
-  DayOfWeek get actualWeekStart => weekStart ?? DayOfWeek.monday;
+  /// Returns [weekStart] or [DateTime.monday] if that is not set.
+  int get actualWeekStart => weekStart ?? DateTime.monday;
 
-  /// The [WeekYearRule] starting at [actualWeekStart].
-  ///
-  /// Otherwise, it's the same as [WeekYearRules.iso].
-  WeekYearRule get weekYearRule =>
-      WeekYearRules.forMinDaysInFirstWeek(4, actualWeekStart);
-
-  Iterable<LocalDateTime> getInstances({
-    @required LocalDateTime start,
-  }) {
-    assert(start != null);
+  Iterable<DateTime> getInstances({required DateTime start}) {
+    assert(start.isValidRruleDateTime);
     return getRecurrenceRuleInstances(this, start: start);
   }
 
@@ -188,20 +187,15 @@ class RecurrenceRule {
       byWeeks,
       byMonths,
       bySetPositions,
-      weekStart,
     ]);
   }
 
   @override
   bool operator ==(Object other) {
-    if (identical(this, other)) {
-      return true;
-    }
-    if (other.runtimeType != runtimeType) {
-      return false;
-    }
+    if (identical(this, other)) return true;
+    if (other.runtimeType != runtimeType) return false;
 
-    final equality = DeepCollectionEquality();
+    const equality = DeepCollectionEquality();
     return other is RecurrenceRule &&
         other.frequency == frequency &&
         other.until == until &&
@@ -215,8 +209,47 @@ class RecurrenceRule {
         equality.equals(other.byYearDays, byYearDays) &&
         equality.equals(other.byWeeks, byWeeks) &&
         equality.equals(other.byMonths, byMonths) &&
-        equality.equals(other.bySetPositions, bySetPositions) &&
-        other.weekStart == weekStart;
+        equality.equals(other.bySetPositions, bySetPositions);
+  }
+
+  RecurrenceRule copyWith({
+    Frequency? frequency,
+    DateTime? until,
+    bool clearUntil = false,
+    int? count,
+    bool clearCount = false,
+    int? interval,
+    bool clearInterval = false,
+    Set<int>? bySeconds,
+    Set<int>? byMinutes,
+    Set<int>? byHours,
+    Set<ByWeekDayEntry>? byWeekDays,
+    Set<int>? byMonthDays,
+    Set<int>? byYearDays,
+    Set<int>? byWeeks,
+    Set<int>? byMonths,
+    Set<int>? bySetPositions,
+  }) {
+    assert(until.isValidRruleDateTime);
+    assert(!(clearUntil && until != null));
+    assert(!(clearCount && count != null));
+    assert(!(clearInterval && interval != null));
+
+    return RecurrenceRule(
+      frequency: frequency ?? this.frequency,
+      until: clearUntil ? null : until ?? this.until,
+      count: clearCount ? null : count ?? this.count,
+      interval: clearInterval ? null : interval ?? this.interval,
+      bySeconds: bySeconds ?? this.bySeconds,
+      byMinutes: byMinutes ?? this.byMinutes,
+      byHours: byHours ?? this.byHours,
+      byWeekDays: byWeekDays ?? this.byWeekDays,
+      byMonthDays: byMonthDays ?? this.byMonthDays,
+      byYearDays: byYearDays ?? this.byYearDays,
+      byWeeks: byWeeks ?? this.byWeeks,
+      byMonths: byMonths ?? this.byMonths,
+      bySetPositions: bySetPositions ?? this.bySetPositions,
+    );
   }
 
   /// Converts this rule to a machine-readable, RFC-5545-compliant string.
@@ -226,8 +259,7 @@ class RecurrenceRule {
   /// Converts this rule to a human-readable string.
   ///
   /// This may only be called on rules that are fully convertable to text.
-  String toText({@required RruleL10n l10n}) {
-    assert(l10n != null);
+  String toText({required RruleL10n l10n}) {
     assert(
       canFullyConvertToText,
       "This recurrence rule can't fully be converted to text. See "
@@ -265,19 +297,19 @@ class RecurrenceRule {
 /// Validates the `seconds` rule.
 bool _debugCheckIsValidSecond(int number) {
   // We currently don't support leap seconds.
-  assert(0 <= number && number < TimeConstants.secondsPerMinute);
+  assert(0 <= number && number < Duration.secondsPerMinute);
   return true;
 }
 
 /// Validates the `minutes` rule.
 bool _debugCheckIsValidMinute(int number) {
-  assert(0 <= number && number < TimeConstants.minutesPerHour);
+  assert(0 <= number && number < Duration.minutesPerHour);
   return true;
 }
 
 /// Validates the `hour` rule.
 bool _debugCheckIsValidHour(int number) {
-  assert(0 <= number && number < TimeConstants.hoursPerDay);
+  assert(0 <= number && number < Duration.hoursPerDay);
   return true;
 }
 
